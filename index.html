@@ -186,7 +186,6 @@ function tambahBaris(jenis){
   const container = jenis === 'thermo'? 'listProdukThermo' : (jenis === 'giling' ? 'listProdukGiling' : 'listProdukExtruder');
   const id = Date.now();
 
-  const extOptions = '<option value="">PILIH EXT</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option>';
   const tfOptions = '<option value="">PILIH TF</option><option>TF4</option><option>TF5</option><option>TF6</option><option>TF7</option><option>TF8</option><option>TF9</option><option>TF10</option>';
 
   let html = `<div class="produk-item" id="item-${id}"><button type="button" class="btn-hapus" onclick="document.getElementById('item-${id}').remove()">X</button>`;
@@ -201,7 +200,6 @@ function tambahBaris(jenis){
     html += `<label>BS SHEET</label><input type="text" inputmode="decimal" pattern="[0-9]+([.,][0-9]+)?" name="bs_sheet" placeholder="0">`;
     html += `<label>SALDO AKHIR</label><input type="text" inputmode="decimal" pattern="[0-9]+([.,][0-9]+)?" name="saldo_akhir" placeholder="0" required>`;
   } else {
-    if(jenis === 'extruder'){ html += `<label>EXT</label><select name="ext" class="select-ext" required>${extOptions}</select>`; }
     html += produkPickerHtml();
     html += `<label>QTY</label><input type="text" inputmode="decimal" pattern="[0-9]+([.,][0-9]+)?" name="qty" placeholder="0" required>`;
     html += `<label>WASTE</label><input type="text" inputmode="decimal" pattern="[0-9]+([.,][0-9]+)?" name="waste" placeholder="0">`;
@@ -418,7 +416,6 @@ function handleSubmit(formId, buktiId, jenis){
       produk_list.push({
         produk: item.querySelector('[name=produk]').value,
         tf: item.querySelector('[name=tf]')?.value || "",
-        ext: item.querySelector('[name=ext]')?.value || "",
         sheet_naik: angka(item.querySelector('[name=sheet_naik]')?.value),
         hasil_box: angka(item.querySelector('[name=hasil_box]')?.value),
         berat_gram: angka(item.querySelector('[name=berat_gram]')?.value),
