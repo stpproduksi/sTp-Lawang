@@ -397,6 +397,10 @@ function dpLineChartHtml(datasets, months, opts){
   var w = 640, h = 230, padL = 50, padR = 16, padT = 16, padB = 34;
   var innerW = w - padL - padR, innerH = h - padT - padB;
 
+  if (!months.length){
+    return '<div class="empty">Belum ada data bulanan untuk ditampilkan.</div>';
+  }
+
   var maxVal = 0;
   datasets.forEach(function(ds){ ds.values.forEach(function(v){ if ((v||0) > maxVal) maxVal = v; }); });
   if (maxVal <= 0) maxVal = 1;
@@ -404,10 +408,6 @@ function dpLineChartHtml(datasets, months, opts){
   var n = months.length;
   function xPos(i){ return n <= 1 ? padL + innerW/2 : padL + (i/(n-1))*innerW; }
   function yPos(v){ return padT + innerH - ((v||0)/maxVal)*innerH; }
-
-  if (n === 0){
-    return '<div class="empty">Belum ada data bulanan untuk ditampilkan.</div>';
-  }
 
   var gridLines = '';
   var steps = 4;
@@ -458,7 +458,7 @@ function dpFetchData(filters, onSuccess, onError, isRetry){
     .then(onSuccess)
     .catch(function(err){
       if (!isRetry) {
-        dpFetchData(filters, onSuccess, onError, true); // coba sekali lagi otomatis
+        dpFetchData(filters, onSuccess, onError, true);
       } else {
         onError(err);
       }
@@ -490,10 +490,10 @@ function dpRenderAll(data){
   document.getElementById('stCount').textContent = totalRows;
 
   dpRenderGiling(data.giling);
-  dpRenderWIP(data.wip);
+  dpRenderWIP(data.wip, data.wipTrend);
   dpRenderThermo(data.thermo, data.thermoTrend);
   dpRenderExtruder(data.extruder, data.extruderTrend);
-  dpRenderTotalSheet(data.totalSheet);
+  dpRenderTotalSheet(data.totalSheet, data.totalSheetTrend);
   dpRenderTehnik(data.tehnik);
 }
 
@@ -524,7 +524,7 @@ function dpRenderGiling(d){
   el.innerHTML = html;
 }
 
-function dpRenderWIP(d){
+function dpRenderWIP(d, trend){
   var el = document.getElementById('sec-wip');
   if (dpErrorOrEmpty(el, d, 'Tidak ada data WIP pada rentang filter ini.')) return;
 
@@ -548,6 +548,15 @@ function dpRenderWIP(d){
     '<div class="chart-card"><h3>Komposisi Bahan vs WIP (Total Campuran = 100%)</h3>' + dpDonutHtml(slices,'100%') + '</div>' +
     '<div class="chart-card"><h3>Bahan - 14 Hari Terakhir</h3>' + dpBarsHtml(barsBahan) + '</div>' +
     '</div>';
+
+  if (trend && !trend.error && trend.rows && trend.rows.length){
+    var monthsW = trend.rows.map(function(r){ return dpMonthLabel(r.month); });
+    var bahanDs = { name: 'Total Bahan', color: '#14B8A6', values: trend.rows.map(function(r){ return r.bahan; }) };
+    var wipDs = { name: 'Total WIP', color: '#8B5CF6', values: trend.rows.map(function(r){ return r.wip; }) };
+    html += '<h2>Perkembangan per Bulan</h2>';
+    html += '<div class="chart-row"><div class="chart-card" style="flex:1 1 100%;"><h3>Total Bahan vs Total WIP per Bulan</h3>' + dpLineChartHtml([bahanDs, wipDs], monthsW) + '</div></div>';
+  }
+
   html += '<h2>Rincian Harian</h2>';
   html += '<table><thead><tr><th>Tanggal</th><th>Bahan</th><th>WIP</th><th>Total Campuran</th><th>% Bahan</th><th>% WIP</th><th>Cek (harus 100%)</th></tr></thead><tbody>';
   d.rows.forEach(function(r){
@@ -646,7 +655,7 @@ function dpRenderExtruder(d, trend){
   el.innerHTML = html;
 }
 
-function dpRenderTotalSheet(d){
+function dpRenderTotalSheet(d, trend){
   var el = document.getElementById('sec-totalSheet');
   if (dpErrorOrEmpty(el, d, 'Tidak ada data TOTAL SHEET pada rentang filter ini.')) return;
 
@@ -655,6 +664,16 @@ function dpRenderTotalSheet(d){
   var html = '<h2>Kontribusi per Extruder (Line) - Sheet TOTAL SHEET</h2>';
   html += '<div class="stat-row"><div class="stat-card"><div class="k">Grand Total</div><div class="v accent">' + dpFmt(d.grandTotal) + '</div></div></div>';
   html += '<div class="chart-row"><div class="chart-card"><h3>Total per Extruder</h3>' + dpBarsHtml(bars) + '</div></div>';
+
+  if (trend && !trend.error && trend.months && trend.months.length && trend.series && trend.series.length){
+    var monthsS = trend.months.map(function(m){ return dpMonthLabel(m); });
+    var datasetsS = trend.series.map(function(s, i){
+      return { name: s.ext, color: PALETTE[i % PALETTE.length], values: s.values };
+    });
+    html += '<h2>Perkembangan per Bulan (per Extruder)</h2>';
+    html += '<div class="chart-row"><div class="chart-card" style="flex:1 1 100%;"><h3>Total Hasil Tiap Extruder per Bulan</h3>' + dpLineChartHtml(datasetsS, monthsS) + '</div></div>';
+  }
+
   html += '<table><thead><tr><th>Extruder</th><th>Shift 1</th><th>Shift 2</th><th>Shift 3</th><th>Total</th><th>% Kontribusi</th></tr></thead><tbody>';
   d.rows.forEach(function(r, i){
     html += '<tr><td class="name">' + r.ext + '</td><td>' + dpFmt(r.shift1) + '</td><td>' + dpFmt(r.shift2) + '</td><td>' + dpFmt(r.shift3) + '</td><td>' + dpFmt(r.total) + '</td><td>' + dpGaugeHtml(r.pct, PALETTE[i % PALETTE.length]) + '</td></tr>';
@@ -689,6 +708,17 @@ function dpRenderTehnik(d){
   el.innerHTML = html;
 }
 
+/* ---------------------------------------------------------------------
+ *  Default: saat pertama dibuka, filter langsung diisi bulan berjalan
+ *  (bukan tarik seluruh histori) supaya load pertama lebih ringan.
+ * ------------------------------------------------------------------- */
+(function dpSetDefaultRange(){
+  var now = new Date();
+  var first = new Date(now.getFullYear(), now.getMonth(), 1);
+  function toISO(d){ return d.toISOString().slice(0,10); }
+  document.getElementById('startDate').value = toISO(first);
+  document.getElementById('endDate').value = toISO(now);
+})();
 dpApplyFilter();
 </script>
 </body>
