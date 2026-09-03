@@ -248,6 +248,7 @@
 
 <script>
 var PALETTE = ['#FF7A45','#3B82F6','#8B5CF6','#EC4899','#14B8A6','#F59E0B','#22C55E','#EF4444','#64748B'];
+var MONTH_NAMES = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
 
 function dpCurrentTabName(){
   var active = document.querySelector('.tab.active');
@@ -375,9 +376,71 @@ function dpTopNPlusOther(rows, valueKey, labelKey, n){
   return out;
 }
 
-var WEBAPP_URL = 'https://script.google.com/macros/s/AKfycby56ZoYGB_Pvi8E9rVUdbF2bwpBjYnjOaR2H3xCf6erZnceUrkIpGfqOKemg8EzZiIIRA/exec';
+/* ---------------------------------------------------------------------
+ *  Label bulan "yyyy-MM" -> "Jul 2026"
+ * ------------------------------------------------------------------- */
+function dpMonthLabel(key){
+  var parts = String(key).split('-');
+  var y = parts[0];
+  var m = parseInt(parts[1], 10);
+  return (MONTH_NAMES[m-1] || '?') + ' ' + y;
+}
 
-function dpFetchData(filters, onSuccess, onError){
+/* ---------------------------------------------------------------------
+ *  Line chart sederhana (SVG) untuk tren bulanan, bisa multi-series.
+ *  datasets: [{ name, color, values: [n,n,...] }]
+ *  months:   ['Jul 2026', 'Agu 2026', ...] (sejajar dengan values)
+ * ------------------------------------------------------------------- */
+function dpLineChartHtml(datasets, months, opts){
+  opts = opts || {};
+  var dec = opts.decimals === undefined ? 0 : opts.decimals;
+  var w = 640, h = 230, padL = 50, padR = 16, padT = 16, padB = 34;
+  var innerW = w - padL - padR, innerH = h - padT - padB;
+
+  var maxVal = 0;
+  datasets.forEach(function(ds){ ds.values.forEach(function(v){ if ((v||0) > maxVal) maxVal = v; }); });
+  if (maxVal <= 0) maxVal = 1;
+
+  var n = months.length;
+  function xPos(i){ return n <= 1 ? padL + innerW/2 : padL + (i/(n-1))*innerW; }
+  function yPos(v){ return padT + innerH - ((v||0)/maxVal)*innerH; }
+
+  if (n === 0){
+    return '<div class="empty">Belum ada data bulanan untuk ditampilkan.</div>';
+  }
+
+  var gridLines = '';
+  var steps = 4;
+  for (var s = 0; s <= steps; s++){
+    var gy = padT + innerH - (s/steps)*innerH;
+    var val = (maxVal/steps*s);
+    gridLines += '<line x1="' + padL + '" y1="' + gy + '" x2="' + (w-padR) + '" y2="' + gy + '" stroke="#EEF1F7" stroke-width="1"></line>';
+    gridLines += '<text x="' + (padL-8) + '" y="' + (gy+3) + '" text-anchor="end" font-size="9" fill="#7A8296" font-family="Space Mono, monospace">' + dpFmt(val,0) + '</text>';
+  }
+
+  var xLabels = months.map(function(m,i){
+    return '<text x="' + xPos(i).toFixed(1) + '" y="' + (h-10) + '" text-anchor="middle" font-size="9" fill="#7A8296" font-family="Space Mono, monospace">' + m + '</text>';
+  }).join('');
+
+  var lines = datasets.map(function(ds){
+    var pathD = ds.values.map(function(v,i){ return (i===0?'M':'L') + xPos(i).toFixed(1) + ',' + yPos(v).toFixed(1); }).join(' ');
+    var dots = ds.values.map(function(v,i){
+      return '<circle cx="' + xPos(i).toFixed(1) + '" cy="' + yPos(v).toFixed(1) + '" r="3.2" fill="' + ds.color + '"><title>' + ds.name + ' - ' + months[i] + ': ' + dpFmt(v,dec) + '</title></circle>';
+    }).join('');
+    return '<path d="' + pathD + '" fill="none" stroke="' + ds.color + '" stroke-width="2.2"></path>' + dots;
+  }).join('');
+
+  var legend = datasets.map(function(ds){
+    return '<div class="legend-item" style="flex:none;"><div class="legend-dot" style="background:' + ds.color + '"></div><div class="legend-name">' + ds.name + '</div></div>';
+  }).join('');
+
+  return '<svg viewBox="0 0 ' + w + ' ' + h + '" style="width:100%;height:auto;display:block;">' + gridLines + lines + xLabels + '</svg>' +
+    '<div class="legend" style="flex-direction:row;flex-wrap:wrap;gap:16px;margin-top:8px;">' + legend + '</div>';
+}
+
+var WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbziOmuVGayKDi9B8LCNuU0YNOvptw8l7h7osxYruVqMrVMX_65M4bGbzQGCE5WHhoEn/exec';
+
+function dpFetchData(filters, onSuccess, onError, isRetry){
   var runningInsideAppsScript = (typeof google !== 'undefined' && google.script && google.script.run);
   if (runningInsideAppsScript) {
     google.script.run
@@ -393,7 +456,13 @@ function dpFetchData(filters, onSuccess, onError){
   fetch(WEBAPP_URL + '?' + qs.join('&'))
     .then(function(res){ return res.json(); })
     .then(onSuccess)
-    .catch(onError);
+    .catch(function(err){
+      if (!isRetry) {
+        dpFetchData(filters, onSuccess, onError, true); // coba sekali lagi otomatis
+      } else {
+        onError(err);
+      }
+    });
 }
 
 function dpApplyFilter(){
@@ -422,8 +491,8 @@ function dpRenderAll(data){
 
   dpRenderGiling(data.giling);
   dpRenderWIP(data.wip);
-  dpRenderThermo(data.thermo);
-  dpRenderExtruder(data.extruder);
+  dpRenderThermo(data.thermo, data.thermoTrend);
+  dpRenderExtruder(data.extruder, data.extruderTrend);
   dpRenderTotalSheet(data.totalSheet);
   dpRenderTehnik(data.tehnik);
 }
@@ -489,7 +558,7 @@ function dpRenderWIP(d){
   el.innerHTML = html;
 }
 
-function dpRenderThermo(d){
+function dpRenderThermo(d, trend){
   var el = document.getElementById('sec-thermo');
   if (dpErrorOrEmpty(el, d, 'Tidak ada data HASIL THERMO pada rentang filter ini.')) return;
 
@@ -506,6 +575,16 @@ function dpRenderThermo(d){
     '</div>';
   html += '<div class="chart-row"><div class="chart-card" style="flex:1 1 100%;"><h3>Percentage per Mesin TF (Tonase : Pemakaian Sheet) - merah = di bawah ' + s.threshold + '%</h3>' + dpBarsHtml(pctBars,2) + '</div></div>';
   html += '<div class="chart-row"><div class="chart-card"><h3>Kontribusi Tonase per Mesin TF</h3>' + dpDonutHtml(tonaseSlices,'Kg') + '</div></div>';
+
+  if (trend && !trend.error && trend.rows && trend.rows.length){
+    var monthsT = trend.rows.map(function(r){ return dpMonthLabel(r.month); });
+    var boxDs = { name: 'Total Box', color: '#3B82F6', values: trend.rows.map(function(r){ return r.box; }) };
+    var tonaseDs = { name: 'Total Tonase', color: '#FF7A45', values: trend.rows.map(function(r){ return r.tonase; }) };
+    html += '<h2>Perkembangan per Bulan</h2>';
+    html += '<div class="chart-row"><div class="chart-card" style="flex:1 1 100%;"><h3>Total Hasil Box per Bulan</h3>' + dpLineChartHtml([boxDs], monthsT) + '</div></div>';
+    html += '<div class="chart-row"><div class="chart-card" style="flex:1 1 100%;"><h3>Total Tonase per Bulan</h3>' + dpLineChartHtml([tonaseDs], monthsT, {decimals:2}) + '</div></div>';
+  }
+
   html += '<h2>Per Mesin TF</h2>';
   html += '<table><thead><tr><th>TF</th><th>Sheet Naik</th><th>Pemakaian Sheet</th><th>Box</th><th>Pcs</th><th>Tonase</th><th>Gram</th><th>BS Skalaton</th><th>BS Sheet</th><th>Waste</th><th>%</th></tr></thead><tbody>';
   d.rows.forEach(function(r){
@@ -523,7 +602,7 @@ function dpRenderThermo(d){
   el.innerHTML = html;
 }
 
-function dpRenderExtruder(d){
+function dpRenderExtruder(d, trend){
   var el = document.getElementById('sec-extruder');
   if (dpErrorOrEmpty(el, d, 'Tidak ada data EXTRUDER pada rentang filter ini.')) return;
 
@@ -549,6 +628,15 @@ function dpRenderExtruder(d){
     '<div class="chart-card"><h3>Total per Produk</h3>' + dpBarsHtml(topTotal) + '</div>' +
     '</div>';
   html += '<div class="note">% Baik = 100% - % BS Sayat - % BS Sheet - % Waste.</div>';
+
+  if (trend && !trend.error && trend.rows && trend.rows.length){
+    var monthsE = trend.rows.map(function(r){ return dpMonthLabel(r.month); });
+    var baikDs = { name: 'Hasil Sheet Baik', color: '#22C55E', values: trend.rows.map(function(r){ return r.baik; }) };
+    var pemakaianDs = { name: 'Pemakaian (Total)', color: '#3B82F6', values: trend.rows.map(function(r){ return r.total; }) };
+    html += '<h2>Perkembangan per Bulan</h2>';
+    html += '<div class="chart-row"><div class="chart-card" style="flex:1 1 100%;"><h3>Hasil Sheet Baik vs Pemakaian per Bulan</h3>' + dpLineChartHtml([baikDs, pemakaianDs], monthsE) + '</div></div>';
+  }
+
   html += '<h2>Per Produk</h2>';
   html += '<table><thead><tr><th>Nama Produk</th><th>Total</th><th>BS Sayat</th><th>BS Sheet</th><th>Waste</th><th>% BS Sayat</th><th>% BS Sheet</th><th>% Waste</th><th>% Baik</th></tr></thead><tbody>';
   d.rows.forEach(function(r){
