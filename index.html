@@ -229,6 +229,7 @@
     <div class="tab active" data-tab="giling" onclick="dpSwitchTab('giling')">Giling</div>
     <div class="tab" data-tab="wip" onclick="dpSwitchTab('wip')">WIP</div>
     <div class="tab" data-tab="thermo" onclick="dpSwitchTab('thermo')">Thermo</div>
+    <div class="tab" data-tab="trenTf" onclick="dpSwitchTab('trenTf')">Tren TF</div>
     <div class="tab" data-tab="extruder" onclick="dpSwitchTab('extruder')">Extruder</div>
     <div class="tab" data-tab="totalSheet" onclick="dpSwitchTab('totalSheet')">Total Sheet</div>
     <div class="tab" data-tab="tehnik" onclick="dpSwitchTab('tehnik')">Tehnik</div>
@@ -238,6 +239,7 @@
     <div class="section active" id="sec-giling"></div>
     <div class="section" id="sec-wip"></div>
     <div class="section" id="sec-thermo"></div>
+    <div class="section" id="sec-trenTf"></div>
     <div class="section" id="sec-extruder"></div>
     <div class="section" id="sec-totalSheet"></div>
     <div class="section" id="sec-tehnik"></div>
@@ -387,7 +389,10 @@ function dpMonthLabel(key){
 }
 
 /* ---------------------------------------------------------------------
- *  Line chart sederhana (SVG) untuk tren bulanan, bisa multi-series.
+ *  Line chart multi-series (SVG) untuk tren bulanan.
+ *  Label bulan pertama rata kiri, label bulan terakhir rata kanan
+ *  (bukan di-tengah-kan persis di ujung) supaya teksnya tidak
+ *  kepotong tepi chart.
  *  datasets: [{ name, color, values: [n,n,...] }]
  *  months:   ['Jul 2026', 'Agu 2026', ...] (sejajar dengan values)
  * ------------------------------------------------------------------- */
@@ -414,12 +419,14 @@ function dpLineChartHtml(datasets, months, opts){
   for (var s = 0; s <= steps; s++){
     var gy = padT + innerH - (s/steps)*innerH;
     var val = (maxVal/steps*s);
-    gridLines += '<line x1="' + padL + '" y1="' + gy + '" x2="' + (w-padR) + '" y2="' + gy + '" stroke="#EEF1F7" stroke-width="1"></line>';
-    gridLines += '<text x="' + (padL-8) + '" y="' + (gy+3) + '" text-anchor="end" font-size="9" fill="#7A8296" font-family="Space Mono, monospace">' + dpFmt(val,0) + '</text>';
+    gridLines += '<line x1="' + padL + '" y1="' + gy + '" x2="' + (w-padR) + '" y2="' + gy + '" stroke="#DCE1EB" stroke-width="1"></line>';
+    gridLines += '<text x="' + (padL-8) + '" y="' + (gy+3) + '" text-anchor="end" font-size="10.5" font-weight="700" fill="#3A4356" font-family="Space Mono, monospace">' + dpFmt(val,0) + '</text>';
   }
 
   var xLabels = months.map(function(m,i){
-    return '<text x="' + xPos(i).toFixed(1) + '" y="' + (h-10) + '" text-anchor="middle" font-size="9" fill="#7A8296" font-family="Space Mono, monospace">' + m + '</text>';
+    var anchor = (i === 0) ? 'start' : (i === n-1 ? 'end' : 'middle');
+    var xa = (i === 0) ? padL : (i === n-1 ? (w-padR) : xPos(i));
+    return '<text x="' + xa.toFixed(1) + '" y="' + (h-10) + '" text-anchor="' + anchor + '" font-size="10.5" font-weight="700" fill="#3A4356" font-family="Space Mono, monospace">' + m + '</text>';
   }).join('');
 
   var lines = datasets.map(function(ds){
@@ -431,11 +438,71 @@ function dpLineChartHtml(datasets, months, opts){
   }).join('');
 
   var legend = datasets.map(function(ds){
-    return '<div class="legend-item" style="flex:none;"><div class="legend-dot" style="background:' + ds.color + '"></div><div class="legend-name">' + ds.name + '</div></div>';
+    return '<div class="legend-item" style="flex:none;"><div class="legend-dot" style="background:' + ds.color + '; width:11px; height:11px;"></div><div class="legend-name" style="font-weight:700; color:var(--ink);">' + ds.name + '</div></div>';
   }).join('');
 
   return '<svg viewBox="0 0 ' + w + ' ' + h + '" style="width:100%;height:auto;display:block;">' + gridLines + lines + xLabels + '</svg>' +
     '<div class="legend" style="flex-direction:row;flex-wrap:wrap;gap:16px;margin-top:8px;">' + legend + '</div>';
+}
+
+/* ---------------------------------------------------------------------
+ *  Mini line chart SATU SERIES (untuk grid "1 kartu per item", supaya
+ *  tidak ada garis numpuk/warna mirip). Titik diwarnai hijau/merah
+ *  sesuai ambang batas, ada garis putus-putus penanda ambang batas,
+ *  dan angka bulan terakhir ditonjolkan di atas grafik.
+ * ------------------------------------------------------------------- */
+function dpMiniLineChartHtml(title, values, months, threshold, opts){
+  opts = opts || {};
+  var dec = opts.decimals === undefined ? 2 : opts.decimals;
+  var unit = opts.unit || '%';
+  var w = 300, h = 150, padL = 34, padR = 10, padT = 14, padB = 24;
+  var innerW = w - padL - padR, innerH = h - padT - padB;
+
+  var n = values.length;
+  var maxCandidate = values.reduce(function(m,v){ return Math.max(m, v||0); }, threshold || 0);
+  var maxVal = maxCandidate > 0 ? maxCandidate * 1.15 : 100;
+
+  function xPos(i){ return n <= 1 ? padL + innerW/2 : padL + (i/(n-1))*innerW; }
+  function yPos(v){ return padT + innerH - ((v||0)/maxVal)*innerH; }
+
+  var thresholdSvg = '';
+  if (threshold !== undefined && threshold !== null){
+    var ty = yPos(threshold);
+    thresholdSvg = '<line x1="' + padL + '" y1="' + ty.toFixed(1) + '" x2="' + (w-padR) + '" y2="' + ty.toFixed(1) + '" stroke="#DC2626" stroke-width="1.8" stroke-dasharray="5 3"></line>' +
+      '<text x="' + (w-padR) + '" y="' + (ty-5).toFixed(1) + '" text-anchor="end" font-size="10" font-weight="700" fill="#DC2626" font-family="Space Mono, monospace">' + threshold + unit + '</text>';
+  }
+
+  var pathD = values.map(function(v,i){ return (i===0?'M':'L') + xPos(i).toFixed(1) + ',' + yPos(v).toFixed(1); }).join(' ');
+  var dots = values.map(function(v,i){
+    var ok = threshold === undefined || threshold === null || (v||0) >= threshold;
+    var color = ok ? '#16A34A' : '#DC2626';
+    return '<circle cx="' + xPos(i).toFixed(1) + '" cy="' + yPos(v).toFixed(1) + '" r="4.2" fill="' + color + '" stroke="#fff" stroke-width="1.4"><title>' + months[i] + ': ' + dpFmt(v,dec) + unit + '</title></circle>';
+  }).join('');
+
+  var xLabels = months.map(function(m,i){
+    var anchor = (i === 0) ? 'start' : (i === n-1 ? 'end' : 'middle');
+    var xa = (i === 0) ? padL : (i === n-1 ? (w-padR) : xPos(i));
+    return '<text x="' + xa.toFixed(1) + '" y="' + (h-6) + '" text-anchor="' + anchor + '" font-size="10" font-weight="700" fill="#3A4356" font-family="Space Mono, monospace">' + m + '</text>';
+  }).join('');
+
+  var lastVal = values[values.length - 1];
+  var lastOk = threshold === undefined || threshold === null || (lastVal||0) >= threshold;
+  var lastColor = lastOk ? '#16A34A' : '#DC2626';
+
+  var svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" style="width:100%;height:auto;display:block;">' +
+    thresholdSvg +
+    '<path d="' + pathD + '" fill="none" stroke="#2563EB" stroke-width="2.6"></path>' +
+    dots + xLabels +
+    '</svg>';
+
+  return '<div class="chart-card" style="flex:1 1 260px;">' +
+    '<h3 style="color:var(--ink); font-size:13px;">' + title + '</h3>' +
+    '<div style="display:flex; align-items:baseline; gap:8px; margin-bottom:4px;">' +
+      '<div style="font-family:\'Space Mono\',monospace; font-weight:700; font-size:22px; color:' + lastColor + ';">' + dpFmt(lastVal,dec) + unit + '</div>' +
+      '<div style="font-size:11px; font-weight:700; color:var(--ink);">bulan terakhir</div>' +
+    '</div>' +
+    svg +
+    '</div>';
 }
 
 var WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbziOmuVGayKDi9B8LCNuU0YNOvptw8l7h7osxYruVqMrVMX_65M4bGbzQGCE5WHhoEn/exec';
@@ -492,6 +559,7 @@ function dpRenderAll(data){
   dpRenderGiling(data.giling);
   dpRenderWIP(data.wip, data.wipTrend);
   dpRenderThermo(data.thermo, data.thermoTrend);
+  dpRenderTrenTf(data.thermoTfPctTrend);
   dpRenderExtruder(data.extruder, data.extruderTrend);
   dpRenderTotalSheet(data.totalSheet, data.totalSheetTrend);
   dpRenderTehnik(data.tehnik);
@@ -611,6 +679,46 @@ function dpRenderThermo(d, trend){
   el.innerHTML = html;
 }
 
+/* ---------------------------------------------------------------------
+ *  TAB TREN TF — satu mini chart per mesin TF, supaya tidak ada garis
+ *  numpuk / warna mirip. Rumus: % = (Total Tonase / Total Pemakaian
+ *  Sheet) * 100. Titik hijau = di atas ambang batas, merah = di bawah.
+ * ------------------------------------------------------------------- */
+function dpRenderTrenTf(trend){
+  var el = document.getElementById('sec-trenTf');
+  if (!trend || trend.error || !trend.months || !trend.months.length || !trend.series || !trend.series.length){
+    el.innerHTML = '<div class="empty">Belum ada data % Tonase per TF untuk ditampilkan.</div>';
+    return;
+  }
+
+  var months = trend.months.map(function(m){ return dpMonthLabel(m); });
+
+  var html = '<h2>Perkembangan % Tonase per Mesin TF (per Bulan)</h2>';
+  html += '<div class="note">Rumus: % Tonase = (Total Tonase &divide; Total Pemakaian Sheet) &times; 100%. Garis putus-putus merah = ambang batas ' + trend.threshold + '%. Titik hijau = di atas ambang, titik merah = di bawah ambang.</div>';
+
+  html += '<div class="chart-row">';
+  trend.series.forEach(function(s){
+    html += dpMiniLineChartHtml(s.tf, s.values, months, trend.threshold, {decimals:2, unit:'%'});
+  });
+  html += '</div>';
+
+  html += '<h2>Tabel % Tonase per Bulan</h2>';
+  html += '<table><thead><tr><th>Bulan</th>';
+  trend.series.forEach(function(s){ html += '<th>' + s.tf + '</th>'; });
+  html += '</tr></thead><tbody>';
+  trend.months.forEach(function(m, mi){
+    html += '<tr><td class="name">' + dpMonthLabel(m) + '</td>';
+    trend.series.forEach(function(s){
+      var val = s.values[mi];
+      var cls = val < trend.threshold ? 'bad' : 'good';
+      html += '<td class="v ' + cls + '" style="font-size:12px;">' + dpFmt(val,2) + '%</td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
 function dpRenderExtruder(d, trend){
   var el = document.getElementById('sec-extruder');
   if (dpErrorOrEmpty(el, d, 'Tidak ada data EXTRUDER pada rentang filter ini.')) return;
@@ -667,11 +775,12 @@ function dpRenderTotalSheet(d, trend){
 
   if (trend && !trend.error && trend.months && trend.months.length && trend.series && trend.series.length){
     var monthsS = trend.months.map(function(m){ return dpMonthLabel(m); });
-    var datasetsS = trend.series.map(function(s, i){
-      return { name: s.ext, color: PALETTE[i % PALETTE.length], values: s.values };
-    });
     html += '<h2>Perkembangan per Bulan (per Extruder)</h2>';
-    html += '<div class="chart-row"><div class="chart-card" style="flex:1 1 100%;"><h3>Total Hasil Tiap Extruder per Bulan</h3>' + dpLineChartHtml(datasetsS, monthsS) + '</div></div>';
+    html += '<div class="chart-row">';
+    trend.series.forEach(function(s){
+      html += dpMiniLineChartHtml(s.ext, s.values, monthsS, null, {decimals:0, unit:''});
+    });
+    html += '</div>';
   }
 
   html += '<table><thead><tr><th>Extruder</th><th>Shift 1</th><th>Shift 2</th><th>Shift 3</th><th>Total</th><th>% Kontribusi</th></tr></thead><tbody>';
